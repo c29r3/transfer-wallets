@@ -11,11 +11,10 @@ import asyncio, aiohttp
 import telebot
 import math
 
-MULTIPLIER = 1.5 # на сколько будет умножаться (gas * gasPrice), если монета нативная и выводим весь баланс
+MULTIPLIER = 1.25 # на сколько будет умножаться (gas * gasPrice), если монета нативная и выводим весь баланс
     
 list_send = []
 def send_msg():
-
     try:
         str_send = '\n'.join(list_send)
         bot = telebot.TeleBot(TG_TOKEN)
@@ -60,7 +59,7 @@ async def get_prices(datas):
     prices = {}
 
     for chain, coins in datas.items():
-        web3 = Web3(Web3.HTTPProvider(DATA[chain]['rpc']))
+        web3 = Web3(Web3.HTTPProvider(random.choice(DATA[chain]['rpc'])))
 
         for address_contract in coins:
             if address_contract == '':  # eth
@@ -91,9 +90,14 @@ class Web3ManagerAsync:
         self.chain_id = DATA[self.chain]['chain_id']
 
     def get_web3(self):
-        rpc = DATA[self.chain]['rpc']
-        web3 = Web3(AsyncHTTPProvider(rpc), modules={"eth": (AsyncEth)}, middlewares=[])
-        return web3
+        try:
+            rpc = DATA[self.chain]['rpc']
+            # print(rpc)
+            web3 = Web3(AsyncHTTPProvider(random.choice(rpc)), modules={"eth": (AsyncEth)}, middlewares=[])
+            return web3
+
+        except Exception as provider_err:
+            print(f'get_web3() | {provider_err=}')
 
     async def add_gas_limit(self, contract_txn):
 
@@ -116,7 +120,6 @@ class Web3ManagerAsync:
         return contract_txn
 
     async def get_data_token(self, token_address):
-
         try:
 
             token_contract  = self.web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=ERC20_ABI)
@@ -125,7 +128,7 @@ class Web3ManagerAsync:
             return token_contract, decimals, symbol
         
         except Exception as error:
-            logger.error(error)
+            logger.error(f'{error=} | {self.web3.provider}')
 
     async def sign_tx(self, contract_txn):
 
@@ -172,17 +175,21 @@ class Web3ManagerAsync:
             return False, False
 
     async def get_token_info(self, token_address):
+        try:
+            if token_address == '':
+                address = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+                decimal = 18
+                symbol = DATA[self.chain]['token']
+                print()
+                token_contract = ''
+            else:
+                address = token_address
+                token_contract, decimal, symbol = await self.get_data_token(token_address)
 
-        if token_address == '': 
-            address = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
-            decimal = 18
-            symbol = DATA[self.chain]['token']
-            token_contract = ''
-        else:
-            address = token_address
-            token_contract, decimal, symbol = await self.get_data_token(token_address)
+            return {'address': address, 'symbol': symbol, 'decimal': decimal, 'contract': token_contract}
 
-        return {'address': address, 'symbol': symbol, 'decimal': decimal, 'contract': token_contract}
+        except Exception as err:
+            print(f'def get_token_info | {symbol=} {err}')
     
     async def get_balance(self, token_address):
 
@@ -214,11 +221,15 @@ class Transfer:
         self.manager = Web3ManagerAsync(self.key, self.chain)
 
     async def setup(self):
-        self.amount = await self.manager.get_balance(self.token)
-        self.token_data = await self.manager.get_token_info(self.token)
-        self.symbol = self.token_data['symbol']
-        self.value = intToDecimal(self.amount, self.token_data['decimal']) 
-        self.module_str = f'{self.number} {self.manager.address} | {round_to(self.amount)} {self.symbol} transfer => {self.to_address}'
+        try:
+            self.amount = await self.manager.get_balance(self.token)
+            self.token_data = await self.manager.get_token_info(self.token)
+            self.symbol = self.token_data['symbol']
+            self.value = intToDecimal(self.amount, self.token_data['decimal'])
+            self.module_str = f'{self.number} {self.manager.address} | {round_to(self.amount)} {self.symbol} transfer => {self.to_address}'
+
+        except Exception as setup_err:
+            print(f'def setup() | {self.symbol=} {self.chain=} {setup_err=}')
 
     async def get_txn(self):
 
@@ -323,6 +334,9 @@ async def main(datas):
 
     logger.info(f'getting prices...')
     prices = await get_prices(datas)
+    prices['ZK'] = 1
+    prices['USDC.e'] = 1
+    prices['m.USDT'] = 1
     logger.info(f'prices : {prices}')
 
     if RANDOM_WALLETS == True: 
